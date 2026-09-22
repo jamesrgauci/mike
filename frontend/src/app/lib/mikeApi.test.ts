@@ -43,6 +43,7 @@ import {
     deleteWorkflow,
     deleteWorkflowAsset,
     deleteWorkflowShare,
+    cancelGoogleDriveOAuth,
     disconnectGoogleDrive,
     downloadDocumentsZip,
     downloadUserExport,
@@ -2250,6 +2251,13 @@ describe("thin endpoint wrappers", () => {
             call: () => startGoogleDriveOAuth(),
             url: "/user/integrations/google-drive/oauth/start",
             method: "POST",
+        },
+        {
+            name: "cancelGoogleDriveOAuth",
+            call: () => cancelGoogleDriveOAuth("state-token"),
+            url: "/user/integrations/google-drive/oauth/cancel",
+            method: "POST",
+            body: { state: "state-token" },
         },
         {
             name: "disconnectGoogleDrive",
