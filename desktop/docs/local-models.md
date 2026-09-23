@@ -24,13 +24,16 @@ workspace persist in `~/Library/Application Support/Mike/local/` across app upgr
 
 | Hardware | Starter | Download | Context |
 | --- | --- | --- | --- |
-| Apple Silicon, 8 GB RAM | Qwen 3.5 2B (Q8_0) | 2.7 GB | 8,192 tokens |
-| Apple Silicon, at least 16 GB RAM | Qwen 3.5 4B (Q4_K_M) | 3.4 GB | 16,384 tokens |
+| Apple Silicon, at least 8 GB RAM | Qwen 3.5 2B (Q8_0) | 2.7 GB | 8,192 tokens |
 
-macOS 14+ is required. These are starter presets, not validated minimum performance
-guarantees. The model choice is retained after installation even if hardware changes.
+macOS 14+ is required. This starter preset is not a minimum-performance guarantee.
+The same small starter is used on larger Macs: a larger download is
+not assumed to improve the first experience. An explicit 4B developer comparison
+remains available; it is not automatically recommended to users. Previously
+selected approved models are retained even if hardware changes, with context
+capped to 8K below 16 GB RAM.
 The app checks free disk space before download and reserves another 1 GiB. Models,
-runtime and product sources have separate licenses; both starter model weights are
+runtime and product sources have separate licenses; the starter weights are
 Apache 2.0 and Ollama is MIT. Mike remains AGPL-3.0.
 
 Use short tasks and source excerpts. The 8K context also includes Mike's instructions,
@@ -106,8 +109,8 @@ node desktop/e2e/model-smoke.mjs # opt-in: downloads the real starter into dispo
 
 Before public release, test a freshly downloaded signed DMG on a separate Mac,
 offline relaunch with installed weights, interrupted download recovery, first
-chat and one document/tool task, app updates preserving data, and the smaller
-8 GB preset under ordinary memory pressure.
+chat and one document/tool task, app updates preserving data, and an 8 GB Mac
+under ordinary memory pressure.
 
 Sources: [Ollama v0.34.3](https://github.com/ollama/ollama/releases/tag/v0.34.3),
 [Mac requirements](https://docs.ollama.com/macos),

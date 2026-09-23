@@ -101,6 +101,19 @@ function LastSelectedModel() {
     );
 }
 
+function ProfileLoadState() {
+    const { loading, apiKeysDegraded, profile, reloadProfile } = useUserProfile();
+    return (
+        <>
+            <span data-testid="profile-state">
+                {loading ? "loading" : apiKeysDegraded ? "degraded" : "ready"}
+            </span>
+            <span data-testid="profile-tier">{profile?.tier}</span>
+            <button onClick={() => void reloadProfile()}>Reload profile</button>
+        </>
+    );
+}
+
 function TabularChatSettings() {
     const { persistChatModelSelection, persistChatReasoningSelection } =
         useUserProfile();
@@ -146,6 +159,33 @@ afterEach(() => {
 });
 
 describe("UserProfileProvider desktop starter", () => {
+    it.each(["initial load", "reload"])(
+        "degrades a malformed profile on %s without crashing the provider",
+        async (phase) => {
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const readyLocalModel = vi.fn(async () => null);
+            window.mikeDesktop = { readyLocalModel };
+            try {
+                if (phase === "initial load") {
+                    getUserProfile.mockResolvedValue({ models: [] });
+                }
+                render(<UserProfileProvider><ProfileLoadState /></UserProfileProvider>);
+                if (phase === "reload") {
+                    await waitFor(() => expect(screen.getByTestId("profile-state")).toHaveTextContent("ready"));
+                    readyLocalModel.mockClear();
+                    getUserProfile.mockResolvedValue({ models: [] });
+                    fireEvent.click(screen.getByRole("button", { name: "Reload profile" }));
+                }
+                await waitFor(() => expect(screen.getByTestId("profile-state")).toHaveTextContent("degraded"));
+                expect(screen.getByTestId("profile-tier")).toHaveTextContent("Free");
+                expect(readyLocalModel).not.toHaveBeenCalled();
+                expect(warn).toHaveBeenCalled();
+            } finally {
+                warn.mockRestore();
+            }
+        },
+    );
+
     it("initializes an installed local model and disables online research", async () => {
         window.mikeDesktop = { readyLocalModel: async () => "ollama/qwen3.5:4b" };
         updateUserProfile.mockResolvedValue({ ...apiProfile(true), lastSelectedChatModel: "ollama/qwen3.5:4b", legalResearchUs: false });

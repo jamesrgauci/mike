@@ -5,11 +5,12 @@
 //
 // Packaged: node desktop/e2e/mike-model.e2e.mjs (after dist:local)
 // Reviewed 4B comparison: node desktop/e2e/mike-model.e2e.mjs --model=4b
+// Fresh first-use account/database: add --fresh (clones only pinned model files).
 // Source:   MIKE_E2E_DEV=1 node desktop/e2e/mike-model.e2e.mjs (after local:build)
 // This checks two synthetic tasks, not legal quality or production throughput.
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import net from "node:net";
 import os from "node:os";
@@ -23,13 +24,16 @@ const require = createRequire(import.meta.url);
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifacts = path.join(desktop, "e2e", "artifacts");
 const args = process.argv.slice(2);
-assert.ok(args.length === 0 || (args.length === 1 && ["--model=2b", "--model=4b"].includes(args[0])),
-  "Usage: node desktop/e2e/mike-model.e2e.mjs [--model=2b|--model=4b]");
-const expected = args[0] === "--model=4b" ? catalog.MODEL
-  : args[0] === "--model=2b" ? catalog.SMALL_MODEL : catalog.chooseStarterModel(os.totalmem());
+assert.ok(args.every((arg) => ["--model=2b", "--model=4b", "--fresh"].includes(arg))
+  && new Set(args).size === args.length && args.filter((arg) => arg.startsWith("--model=")).length <= 1,
+  "Usage: node desktop/e2e/mike-model.e2e.mjs [--model=2b|--model=4b] [--fresh]");
+const expected = args.includes("--model=4b") ? catalog.MODEL
+  : args.includes("--model=2b") ? catalog.SMALL_MODEL : catalog.chooseStarterModel(os.totalmem());
 const modelLabel = expected.tag.split(":")[1];
-const userData = path.join(artifacts, args[0] === "--model=4b" ? "model-4b-userdata" : "model-userdata");
-const reportDir = path.join(artifacts, "mike-model-runs", `${modelLabel}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+const fresh = args.includes("--fresh");
+const cachedUserData = path.join(artifacts, args.includes("--model=4b") ? "model-4b-userdata" : "model-userdata");
+const reportDir = path.join(artifacts, "mike-model-runs", `${modelLabel}${fresh ? "-fresh" : ""}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+const userData = fresh ? path.join(reportDir, "userdata") : cachedUserData;
 const origin = "http://localhost:42815";
 const dev = process.env.MIKE_E2E_DEV === "1";
 const cdpPort = 9226;
@@ -37,6 +41,7 @@ const turnTimeoutMs = 180_000;
 const summary = {
   recordedAt: new Date().toISOString(),
   mode: dev ? "source" : "packaged",
+  fresh,
   modelId: expected.id,
   contextLength: Math.min(expected.contextLength, os.totalmem() < 16 * 1024 ** 3 ? 8192 : 16384),
   memoryBytes: os.totalmem(),
@@ -45,7 +50,31 @@ const summary = {
   qualityNotes: [],
   reportDir,
   turns: [],
+  requests: [],
 };
+
+async function clonePinnedModel() {
+  const cachedLocal = path.join(cachedUserData, "local");
+  const local = path.join(userData, "local");
+  const state = JSON.parse(await readFile(path.join(cachedLocal, "local-model.json"), "utf8"));
+  assert.equal(state.modelId, expected.id, "Cached model selection does not match this comparison");
+  assert.equal(state.manifestDigest, expected.digest, "Cached model is not verified against the approved pin");
+  const files = [
+    ...expected.layers.map((layer) => path.join("models", "blobs", `sha256-${layer.digest}`)),
+    path.join("models", "manifests", "registry.ollama.ai", "library", "qwen3.5", modelLabel),
+  ];
+  for (const relative of files) {
+    const source = path.join(cachedLocal, relative);
+    assert.ok((await lstat(source)).isFile(), "Pinned cache entries must be regular files");
+    const destination = path.join(local, relative);
+    await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+    await copyFile(source, destination, constants.COPYFILE_FICLONE);
+  }
+  // No database, credentials, cookies, profiles or queued jobs are copied.
+  await writeFile(path.join(local, "local-model.json"), JSON.stringify({
+    version: 1, modelId: expected.id, manifestDigest: expected.digest, benchmark: null,
+  }) + "\n", { mode: 0o600 });
+}
 
 function bounded(promise, milliseconds, label) {
   let timer;
@@ -103,6 +132,7 @@ process.once("SIGINT", onSignal);
 process.once("SIGTERM", onSignal);
 
 async function sendThroughComposer(label, prompt) {
+  await page.waitForURL((url) => url.pathname === "/assistant" && !url.search, { timeout: 15_000 });
   const composer = page.getByRole("combobox", { name: "How can I help?" });
   await composer.waitFor({ state: "visible", timeout: 20_000 });
   const started = performance.now();
@@ -114,13 +144,23 @@ async function sendThroughComposer(label, prompt) {
   const response = await responsePromise;
   assert.equal(response.status(), 200, `${label}: Mike chat returned HTTP ${response.status()}`);
   assert.match(response.headers()["content-type"] ?? "", /text\/event-stream/, `${label}: expected real Mike SSE`);
-  assert.equal(response.request().postDataJSON().model, expected.id, `${label}: composer did not use the local default`);
+  const request = response.request().postDataJSON();
+  const requestMetadata = { label, model: request.model, chatId: request.chat_id,
+    messageCount: request.messages?.length, roles: request.messages?.map((message) => message.role) };
+  summary.requests.push(requestMetadata);
+  assert.equal(request.model, expected.id, `${label}: composer did not use the local default`);
+  assert.deepEqual(requestMetadata.roles, ["user"], `${label}: expected one independent user turn without history`);
+  assert.equal(request.messages[0].content, prompt, `${label}: user prompt changed`);
   const body = await bounded(response.text(), turnTimeoutMs, `${label} response`);
   const responseArtifact = `mike-model-turn-${summary.turns.length + 1}.sse.txt`;
   await writeFile(path.join(reportDir, responseArtifact), body);
   const parsed = readSse(body);
+  const chatId = parsed.events.find((event) => event.type === "chat_id")?.chatId;
+  assert.equal(typeof chatId, "string", `${label}: missing chat identity`);
+  assert.ok(!summary.turns.some((turn) => turn.chatId === chatId), `${label}: reused an earlier conversation`);
   const result = {
     label,
+    chatId,
     responseArtifact,
     latencyMs: Math.round(performance.now() - started),
     answer: parsed.answer,
@@ -146,6 +186,7 @@ async function sendThroughComposer(label, prompt) {
 
 try {
   await mkdir(reportDir, { recursive: true });
+  if (fresh) await clonePinnedModel();
   assert.ok(existsSync(path.join(userData, "local", "local-model.json")),
     "No disposable installed model: run desktop/e2e/model-smoke.mjs first");
   for (const port of [cdpPort, 42810, 42811, 42812, 42813, 42814, 42815, 42816]) {

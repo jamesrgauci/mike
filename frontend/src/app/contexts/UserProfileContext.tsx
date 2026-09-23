@@ -235,11 +235,16 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 profileData = await getUserProfile();
             }
             if (!isCurrentLoad()) return;
+            // Normalize while this try/catch owns errors. React can defer a
+            // state updater until render, after this async function returns.
+            const loaded = toProfile(profileData);
             setProfile((current) => {
-                const loaded = toProfile(profileData);
                 if (!canInitializeStarter() && current) {
-                    loaded.lastSelectedChatModel = current.lastSelectedChatModel;
-                    loaded.legalResearchUs = current.legalResearchUs;
+                    return {
+                        ...loaded,
+                        lastSelectedChatModel: current.lastSelectedChatModel,
+                        legalResearchUs: current.legalResearchUs,
+                    };
                 }
                 return loaded;
             });

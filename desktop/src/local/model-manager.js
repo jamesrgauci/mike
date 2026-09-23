@@ -66,7 +66,7 @@ function createModelManager(app, { onStatus = () => {}, _dependencies = {} } = {
     memoryBytes: os.totalmem(), statfs: fsp.statfs, lstat: fsp.lstat, startupMs: 90000,
     requestMs: 180000, downloadStallMs: 90000, downloadMs: 2 * 60 * 60 * 1000,
     ..._dependencies };
-  let MODEL = chooseStarterModel(deps.memoryBytes);
+  let MODEL = chooseStarterModel();
   const root = dataPaths(app).root;
   const modelsDir = path.join(root, "models");
   const stateFile = path.join(root, "local-model.json");
@@ -142,8 +142,8 @@ function createModelManager(app, { onStatus = () => {}, _dependencies = {} } = {
       : deps.memoryBytes < MODEL.recommendedMemoryBytes
         ? "16 GB of memory is recommended. On this Mac, close other apps and expect slower responses."
         : MODEL.tag.endsWith(":2b")
-          ? "The smaller 2B model is selected for this Mac. Start with basic drafting and extraction; check its work and measure performance locally."
-          : "The 4B model is selected for this Mac's memory. Performance is measured locally after download.";
+          ? "The 2B starter model is selected. Start with basic drafting and extraction; check its work and measure performance locally."
+          : "Your existing 4B model selection is retained. Performance is measured locally after download.";
     const remainingBytes = await remainingDownloadBytes();
     return { platform: deps.platform, arch: deps.arch, memoryBytes: deps.memoryBytes,
       freeDiskBytes, remainingDownloadBytes: remainingBytes,

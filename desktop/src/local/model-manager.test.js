@@ -63,11 +63,22 @@ async function fixture(t, overrides = {}) {
   return { manager, calls, spawns, kills, states, behaviors, root, temp, runtimeDir, app, dependencies };
 }
 
-test("selects the small model for 8 GB and the 4B model from 16 GB", () => {
-  assert.equal(chooseStarterModel(8 * 1024 ** 3), SMALL_MODEL);
-  assert.equal(chooseStarterModel(16 * 1024 ** 3), MODEL);
+test("selects the evaluated 2B starter for every supported Mac, regardless of memory", () => {
+  for (const memoryGB of [8, 16, 32, 64, 128])
+    assert.equal(chooseStarterModel(memoryGB * 1024 ** 3), SMALL_MODEL);
   for (const model of [SMALL_MODEL, MODEL])
     assert.equal(model.layers.reduce((bytes, layer) => bytes + layer.sizeBytes, 0), model.downloadBytes);
+});
+
+test("a fresh Mac with more memory still installs the 2B starter with its 8K context", async (t) => {
+  const f = await fixture(t, { memoryBytes: 32 * 1024 ** 3 });
+  const state = await f.manager.install();
+  assert.equal(state.state, "ready");
+  assert.equal(state.modelId, SMALL_MODEL.id);
+  assert.equal(state.downloadBytes, SMALL_MODEL.downloadBytes);
+  assert.equal(state.hardware.contextLength, 8192);
+  assert.equal(f.spawns[0].options.env.OLLAMA_CONTEXT_LENGTH, "8192");
+  assert.equal(f.calls.find((call) => call.url.endsWith("/api/pull")).body.model, SMALL_MODEL.tag);
 });
 
 test("checking a fresh install never starts a runtime or downloads weights", async (t) => {
@@ -94,6 +105,7 @@ test("caps context for a retained 4B model by current physical memory", async (t
     const state = await f.manager.install();
     assert.equal(state.state, "ready");
     assert.equal(state.modelId, MODEL.id);
+    assert.equal(f.calls.find((call) => call.url.endsWith("/api/pull")).body.model, MODEL.tag);
     assert.equal(state.hardware.contextLength, expectedContext);
     assert.equal(f.spawns[0].options.env.OLLAMA_CONTEXT_LENGTH, String(expectedContext));
     const smoke = f.calls.find((call) => call.url.endsWith("/api/generate"));

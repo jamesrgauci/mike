@@ -37,7 +37,8 @@ original full-app tests exposed failures that the runtime checks missed:
   the tool roundtrip but failed strict task completion.
 
 The 4B comparison used an 8K context limit rather than a 16K allocation. A larger
-model alone did not justify replacing the 8 GB starter. The managed starter uses
+model did not justify becoming the default. New installations therefore use 2B
+on every supported Mac. The managed starter uses
 a shorter instruction preset to leave more room for the user's task. Its scope,
 constraints and actual full-app results are covered below. Other model providers
 and the Word add-in's replacement prompt retain their normal behavior.
@@ -57,6 +58,30 @@ the first extraction: the second collapsed its labels onto one line, and the
 workflow answer added a preamble. The strict quality suite therefore **failed**;
 these results must not be described as a model-quality pass.
 
+The 4B compact comparison on the reused workspace timed out at the 180-second
+response limit. That workspace had queued memory-consolidation jobs as well as
+system memory pressure; these observations do not establish which factor caused
+the delay. The failing runs and raw responses were retained.
+
+To test the requested first-use experience independently, a fresh 2B run cloned
+only the approved model files into new app data. It copied no database, accounts,
+cookies, memory, jobs or preferences. Each request used a distinct chat and exactly
+one unchanged user prompt:
+
+| Fresh packaged app check | Observed result |
+| --- | --- |
+| Boot and local guest access | 20.6 s; model selected, external research off |
+| First extraction | 17.5 s; all three facts and exact three-line format passed |
+| Second extraction | 6.4 s; all three facts and exact three-line format passed |
+| Workflow lookup | 13.2 s; one real tool call, three genuine titles |
+
+The workflow answer added an introductory sentence despite being asked for only
+titles. The strict suite **still failed that formatting condition**. This is a
+functional starter with observed instruction-following limits, not a perfect
+three-task quality pass or evidence of legal competence. Tests do not repair or
+hide the generated answer to make it pass. A used workspace and background work
+can be substantially slower than the fresh-install figures.
+
 ## Reproducing the checks
 
 Follow the build instructions in the [desktop README](../README.md), then run:
@@ -67,11 +92,14 @@ npm run e2e:models --prefix desktop
 npm run e2e:local --prefix desktop
 npm run e2e:model-smoke --prefix desktop
 node desktop/e2e/mike-model.e2e.mjs
+node desktop/e2e/mike-model.e2e.mjs --fresh
 ```
 
 The real model suites are opt-in and must run sequentially. The native smoke
 retains its disposable cache so the full-app test can reuse it. To reproduce the
-4B comparison on the same hardware, run both scripts with `--model=4b`.
+4B comparison on the same hardware, run both scripts with `--model=4b`. `--fresh`
+starts with new app data and copies only the approved model cache; it requires
+enough free space if the filesystem cannot clone files without copying bytes.
 The full-app harness saves raw synthetic SSE, screenshots, post-tool answers and
 strict quality results under ignored `desktop/e2e/artifacts/` directories. It
 fails missing facts, unnecessary clarification/tool use, and the requested output

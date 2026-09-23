@@ -9,6 +9,8 @@ const RUNTIME = Object.freeze({
   license: "MIT",
 });
 const layers = (entries) => Object.freeze(entries.map(([digest, sizeBytes]) => Object.freeze({ digest, sizeBytes })));
+// Kept for approved existing installs and explicit developer comparisons.
+// More RAM alone is not evidence that 4B is a better Mike starter.
 const MODEL = Object.freeze({
   id: "ollama/qwen3.5:4b",
   tag: "qwen3.5:4b",
@@ -49,8 +51,10 @@ const SMALL_MODEL = Object.freeze({
   recommendedMemoryBytes: 8 * 1024 ** 3,
 });
 const MODELS = Object.freeze([SMALL_MODEL, MODEL]);
-function chooseStarterModel(memoryBytes) {
-  return memoryBytes >= MODEL.recommendedMemoryBytes ? MODEL : SMALL_MODEL;
+function chooseStarterModel() {
+  // Use the evaluated 2B preset on every supported Mac. A saved approved
+  // selection is restored by the manager without changing existing installs.
+  return SMALL_MODEL;
 }
 
 module.exports = { MODEL, SMALL_MODEL, MODELS, chooseStarterModel, RUNTIME, OLLAMA_URL };
