@@ -70,7 +70,8 @@ one unchanged user prompt:
 
 | Fresh packaged app check | Observed result |
 | --- | --- |
-| Boot and local guest access | 20.6 s; model selected, external research off |
+| Local stack boot | 20.6 s to load the local frontend |
+| Local guest access | Passed; model selected automatically, external research off |
 | First extraction | 17.5 s; all three facts and exact three-line format passed |
 | Second extraction | 6.4 s; all three facts and exact three-line format passed |
 | Workflow lookup | 13.2 s; one real tool call, three genuine titles |
@@ -81,6 +82,28 @@ functional starter with observed instruction-following limits, not a perfect
 three-task quality pass or evidence of legal competence. Tests do not repair or
 hide the generated answer to make it pass. A used workspace and background work
 can be substantially slower than the fresh-install figures.
+
+## Packaged first launch and workspace
+
+The final unsigned app built from commit `45ef0c06` passed:
+
+```sh
+MIKE_E2E_DEV=0 npm run e2e:local --prefix desktop
+```
+
+This used fresh application data and the packaged executable, without the
+`--local` shortcut. The real welcome page opened the `app.asar` Local AI page,
+which displayed Qwen 3.5 2B and its optional 2.7 GB download. Continuing without
+AI downloaded no model files. The local stack then completed signup/onboarding,
+project creation, PDF upload and signed-URL download, and both first-time and
+returning local guest access. A separate byte comparison confirmed that the
+downloaded PDF exactly matched the uploaded fixture.
+
+There were no renderer errors. After Electron's normal quit path, the database,
+frontend and model ports were free. Screenshots and the synthetic
+run summary are retained under ignored `desktop/e2e/artifacts/local-*` files.
+This passed workspace/onboarding check does not change the model-quality
+failures above or establish signed-release acceptance.
 
 ## Reproducing the checks
 

@@ -80,13 +80,15 @@ node desktop/e2e/mike-model.e2e.mjs
 - `e2e:models` drives real Electron main/preload/pages with a fake model backend.
   It checks explicit download, recovery, measurements, export, IPC isolation,
   Dock reopening and quitting during restoration. No weights are needed.
-- `e2e:local` starts a disposable local stack and exercises account creation,
+- `e2e:local` exercises the packaged welcome and optional-model choice, continues
+  without a download, then starts a disposable local stack for account creation,
   project creation, PDF upload/download, and first/returning local guest access.
 - `e2e:model-smoke` is an opt-in real download/inference test. It retains its
   isolated model cache for reuse. Run only one real model suite at a time.
 - `mike-model.e2e.mjs` drives the packaged app, guest login, selected local model,
-  a synthetic extraction and a real workflow tool roundtrip. It saves synthetic
-  SSE evidence and records quality failures separately from transport success.
+  two independent synthetic extraction attempts and a real workflow tool
+  roundtrip. It saves synthetic SSE evidence and records quality failures
+  separately from transport success.
 
 Artifacts and disposable data are ignored under `desktop/e2e/artifacts/`. The Mac
 CI workflow runs portable tests and native onboarding. Real inference and signed
