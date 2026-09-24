@@ -10,7 +10,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { hasLlmKey, LLM_SKIP_REASON } from "./llm";
-import { selectClaudeModel } from "./helpers";
+import { createProject, selectClaudeModel } from "./helpers";
 
 /* ─── Helpers ────────────────────────────────────────────────────────────────── */
 

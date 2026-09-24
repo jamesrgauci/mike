@@ -71,6 +71,14 @@ jobs:
       - name: Ensure lightningcss native binary
         run: npm install --no-save lightningcss --prefix frontend
 
+      # Playwright transpiles TypeScript without typechecking. Keep missing
+      # helpers and stale fixture signatures from hiding in gated browser flows.
+      - name: Typecheck browser specs
+        run: >-
+          npx tsc --ignoreConfig --noEmit --module nodenext
+          --moduleResolution nodenext --target es2022 --skipLibCheck
+          --esModuleInterop --types node e2e/*.ts playwright.config.ts
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
@@ -151,6 +159,9 @@ jobs:
           # is provided by RustFS above, and no spec reads local email. Excluding
           # the unused services also avoids Inbucket claiming host port 54324,
           # which can collide with runner processes before Playwright starts.
+          # Supabase defaults overlap Linux's ephemeral port range. Dedicated
+          # low ports avoid intermittent collisions with runner outbound traffic.
+          sed -i 's/54320/21320/g; s/54321/21321/g; s/54322/21322/g' supabase/config.toml
           supabase start -x studio,imgproxy,inbucket,analytics,vector,realtime,storage,edge-runtime,functions,meta
           DB_URL=$(supabase status -o json | jq -r '.DB_URL')
           # A fresh database runs the current schema exactly once. Historical

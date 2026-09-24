@@ -11,13 +11,8 @@
 # under webkit — a chromium-only run would silently pass with the scroll fix
 # reverted.
 #
-# Unlike ci.yml/e2e.yml this workflow is path-filtered. The add-in has its own
-# lockfile, tsconfigs and mocked backend, but it is NOT self-contained: its
-# webpack build aliases the shared design-system components out of
-# frontend/src/shared/ui and the canonical icon set out of frontend/public/icons
-# (word-addin/webpack.config.js). Edits there land inside the add-in bundle, so
-# both paths are in the filter below — without them a shared-UI change could
-# break the add-in with this job never running.
+# Every PR runs this gate: shared UI, auth and API changes can affect the add-in.
+# Pushes to main retain a path filter to avoid unrelated post-merge runs.
 name: Word add-in
 
 on:
