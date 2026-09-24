@@ -8,7 +8,7 @@ makes that check *required*.
 
 ## What the workflow does
 
-On every `pull_request` targeting `main` (or `upstream-main`, the fork mirror),
+On every `pull_request`, including stacked PRs targeting another feature branch,
 on manual `workflow_dispatch`, and **nightly at 03:47 UTC** (a `schedule` cron,
 so drift that lands between PRs — dependency bumps, Supabase CLI changes,
 selector-breaking UI tweaks — is caught within a day), the `e2e / playwright`

@@ -30,16 +30,8 @@ on:
       - "frontend/public/icons/**"
       - "packages/**"
       - ".github/workflows/word-addin.yml"
+  # Run on every PR, including stacked auth/API changes consumed by Word.
   pull_request:
-    # `main` is the destination upstream; `upstream-main` is the fork's mirror
-    # of it (same pairing as e2e.yml / stack-tests.yml).
-    branches: [main, upstream-main]
-    paths:
-      - "word-addin/**"
-      - "frontend/src/shared/**"
-      - "frontend/public/icons/**"
-      - "packages/**"
-      - ".github/workflows/word-addin.yml"
 
 # Don't pile up runs on rapid pushes to the same PR; pushes to main each get
 # their own group (keyed by sha) and are never cancelled.

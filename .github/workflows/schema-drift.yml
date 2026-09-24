@@ -35,8 +35,8 @@ name: Schema drift
 on:
   push:
     branches: [main]
+  # Include stacked PRs whose base is another feature branch.
   pull_request:
-    branches: [main, upstream-main]
   workflow_dispatch:
 
 concurrency:
