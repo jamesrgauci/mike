@@ -23,7 +23,7 @@ export const CLAUDE_MODEL_LABEL = "Claude Sonnet 4.6";
  *
  * The specs that call this run only when ANTHROPIC_API_KEY is set in the
  * Playwright environment (test.skip(!hasLlmKey, ...) — e2e/llm.ts). The CI stack
- * exports the same secret to the backend, whose key resolution (modules/user/user.apiKeyStore.ts
+ * exports the same fixture key to the backend, whose key resolution (modules/user/user.apiKeyStore.ts
  * envApiKey()) falls back to the ANTHROPIC_API_KEY env var, so the "claude"
  * provider reports as configured and ModelToggle shows the Anthropic models as
  * available. The default model, however, is "gemini-3-flash-preview"
