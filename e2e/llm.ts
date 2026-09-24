@@ -2,7 +2,7 @@
 export const hasLlmKey = Boolean(process.env.ANTHROPIC_API_KEY);
 
 // A missing fixture must fail CI instead of quietly skipping the chat flows.
-if (process.env.CI && !hasLlmKey) {
+if (process.env.CI && (!hasLlmKey || !process.env.ANTHROPIC_BASE_URL)) {
     throw new Error("Web E2E requires its local model fixture and dummy API key in CI.");
 }
 
