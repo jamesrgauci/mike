@@ -8,10 +8,13 @@ import {
   attachPriorReasoning,
   buildMessages,
   MAX_REPLAYED_REASONING_CHARS,
+  MAX_REPLAYED_REASONING_TOTAL_CHARS,
 } from "./contextBuilders";
 import type { ChatMessage } from "./types";
 
 type Row = { content: unknown };
+
+const MODEL = "local-qwen";
 
 /** Records the query it is given and resolves with the supplied rows. */
 function makeDb(rows: Row[], error: unknown = null) {
@@ -41,23 +44,23 @@ function makeDb(rows: Row[], error: unknown = null) {
   return { db: db as unknown as Db, calls };
 }
 
-const turn = (...events: { type: string; text: string }[]): Row => ({
-  content: events,
-});
+type Event = { type: string; text: string; model?: string };
+
+const turn = (...events: Event[]): Row => ({ content: events });
+/** A stored reasoning event; `null` stands for one stored before stamping. */
+const thought = (text: string, model: string | null = MODEL): Event =>
+  model === null ? { type: "reasoning", text } : { type: "reasoning", text, model };
+const said = (text: string): Event => ({ type: "content", text });
 
 describe("attachPriorReasoning", () => {
   it("attaches each stored turn's reasoning to the matching assistant message", async () => {
     const { db, calls } = makeDb([
+      turn(thought("Plan the answer."), said("First "), said("answer.")),
       turn(
-        { type: "reasoning", text: "Plan the answer." },
-        { type: "content", text: "First " },
-        { type: "content", text: "answer." },
-      ),
-      turn(
-        { type: "reasoning", text: "Read the clause." },
+        thought("Read the clause."),
         { type: "doc_read", text: "ignored" },
-        { type: "reasoning", text: "Summarise it." },
-        { type: "content", text: "Second answer." },
+        thought("Summarise it."),
+        said("Second answer."),
       ),
     ]);
     const messages: ChatMessage[] = [
@@ -68,7 +71,7 @@ describe("attachPriorReasoning", () => {
       { role: "user", content: "q3" },
     ];
 
-    const result = await attachPriorReasoning(messages, "chat-1", db);
+    const result = await attachPriorReasoning(messages, "chat-1", MODEL, db);
 
     expect(calls.table).toBe("chat_messages");
     expect(calls.filters).toMatchObject({ chat_id: "chat-1", role: "assistant" });
@@ -83,10 +86,33 @@ describe("attachPriorReasoning", () => {
     expect(result.map((m) => m.content)).toEqual(messages.map((m) => m.content));
   });
 
+  it("never replays another model's reasoning, or reasoning stored without a model", async () => {
+    const { db } = makeDb([
+      turn(thought("From another model.", "other-model"), said("One.")),
+      turn(thought("Stored before stamping.", null), said("Two.")),
+      turn(
+        thought("Mine.", MODEL),
+        thought("Theirs.", "other-model"),
+        said("Three."),
+      ),
+    ]);
+    const result = await attachPriorReasoning(
+      [
+        { role: "assistant", content: "One." },
+        { role: "assistant", content: "Two." },
+        { role: "assistant", content: "Three." },
+      ],
+      "chat-1",
+      MODEL,
+      db,
+    );
+    expect(result.map((m) => m.reasoning)).toEqual([undefined, undefined, "Mine."]);
+  });
+
   it("matches in order, so repeated replies each get their own turn's reasoning", async () => {
     const { db } = makeDb([
-      turn({ type: "reasoning", text: "r1" }, { type: "content", text: "Done." }),
-      turn({ type: "reasoning", text: "r2" }, { type: "content", text: "Done." }),
+      turn(thought("r1"), said("Done.")),
+      turn(thought("r2"), said("Done.")),
     ]);
     const result = await attachPriorReasoning(
       [
@@ -94,34 +120,88 @@ describe("attachPriorReasoning", () => {
         { role: "assistant", content: "Done." },
       ],
       "chat-1",
+      MODEL,
       db,
     );
     expect(result.map((m) => m.reasoning)).toEqual(["r1", "r2"]);
   });
 
   it("leaves a message without a matching stored turn alone", async () => {
-    const { db } = makeDb([
-      turn({ type: "reasoning", text: "r1" }, { type: "content", text: "Stored." }),
-    ]);
+    const { db } = makeDb([turn(thought("r1"), said("Stored."))]);
     const messages: ChatMessage[] = [
       { role: "assistant", content: "Edited by the client." },
     ];
-    const result = await attachPriorReasoning(messages, "chat-1", db);
+    const result = await attachPriorReasoning(messages, "chat-1", MODEL, db);
     expect(result[0].reasoning).toBeUndefined();
   });
 
   it("keeps only the tail of very long reasoning", async () => {
     const long = `${"a".repeat(MAX_REPLAYED_REASONING_CHARS)}END`;
-    const { db } = makeDb([
-      turn({ type: "reasoning", text: long }, { type: "content", text: "Answer." }),
-    ]);
+    const { db } = makeDb([turn(thought(long), said("Answer."))]);
     const [message] = await attachPriorReasoning(
       [{ role: "assistant", content: "Answer." }],
       "chat-1",
+      MODEL,
       db,
     );
     expect(message.reasoning).toHaveLength(MAX_REPLAYED_REASONING_CHARS);
     expect(message.reasoning?.endsWith("END")).toBe(true);
+  });
+
+  it("spends the total budget on the newest turns and sends older ones as text", async () => {
+    const perTurn = MAX_REPLAYED_REASONING_CHARS;
+    const fits = Math.floor(MAX_REPLAYED_REASONING_TOTAL_CHARS / perTurn);
+    const count = fits + 2;
+    const { db } = makeDb(
+      Array.from({ length: count }, (_, i) =>
+        turn(thought(String(i).padEnd(perTurn, ".")), said(`Answer ${i}.`)),
+      ),
+    );
+    const result = await attachPriorReasoning(
+      Array.from({ length: count }, (_, i) => ({
+        role: "assistant" as const,
+        content: `Answer ${i}.`,
+      })),
+      "chat-1",
+      MODEL,
+      db,
+    );
+    const replayed = result.map((m) => m.reasoning !== undefined);
+    expect(replayed).toEqual(
+      Array.from({ length: count }, (_, i) => i >= count - fits),
+    );
+    const total = result.reduce((sum, m) => sum + (m.reasoning?.length ?? 0), 0);
+    expect(total).toBeLessThanOrEqual(MAX_REPLAYED_REASONING_TOTAL_CHARS);
+  });
+
+  it("stops at the first turn that does not fit, even if an older one would", async () => {
+    const full = "f".repeat(MAX_REPLAYED_REASONING_CHARS);
+    // Leaves 1,000 characters of budget after the three newest turns.
+    const nearlyFull = "n".repeat(
+      MAX_REPLAYED_REASONING_TOTAL_CHARS - 2 * full.length - 1_000,
+    );
+    const reasonings = ["tiny", "t".repeat(5_000), nearlyFull, full, full];
+    const { db } = makeDb(
+      reasonings.map((r, i) => turn(thought(r), said(`Answer ${i}.`))),
+    );
+    const result = await attachPriorReasoning(
+      reasonings.map((_, i) => ({
+        role: "assistant" as const,
+        content: `Answer ${i}.`,
+      })),
+      "chat-1",
+      MODEL,
+      db,
+    );
+    // The 5,000-character turn does not fit the remaining 1,000, so it and the
+    // older "tiny" turn go back as text: replay never skips over a gap.
+    expect(result.map((m) => m.reasoning?.length)).toEqual([
+      undefined,
+      undefined,
+      nearlyFull.length,
+      full.length,
+      full.length,
+    ]);
   });
 
   it("reads the table it is given", async () => {
@@ -129,6 +209,7 @@ describe("attachPriorReasoning", () => {
     await attachPriorReasoning(
       [{ role: "assistant", content: "x" }],
       "chat-1",
+      MODEL,
       db,
       "word_chat_messages",
     );
@@ -137,23 +218,23 @@ describe("attachPriorReasoning", () => {
 
   it("returns the history unchanged without a chat, an assistant turn, or a readable table", async () => {
     const messages: ChatMessage[] = [{ role: "assistant", content: "Answer." }];
-    const stored = [
-      turn({ type: "reasoning", text: "r" }, { type: "content", text: "Answer." }),
-    ];
+    const stored = [turn(thought("r"), said("Answer."))];
 
     const noChat = makeDb(stored);
-    expect(await attachPriorReasoning(messages, null, noChat.db)).toBe(messages);
+    expect(await attachPriorReasoning(messages, null, MODEL, noChat.db)).toBe(
+      messages,
+    );
     expect(noChat.calls.table).toBeUndefined();
 
     const userOnly: ChatMessage[] = [{ role: "user", content: "hi" }];
     const noAssistant = makeDb(stored);
-    expect(await attachPriorReasoning(userOnly, "chat-1", noAssistant.db)).toBe(
-      userOnly,
-    );
+    expect(
+      await attachPriorReasoning(userOnly, "chat-1", MODEL, noAssistant.db),
+    ).toBe(userOnly);
     expect(noAssistant.calls.table).toBeUndefined();
 
     const failing = makeDb(stored, { message: "boom" });
-    expect(await attachPriorReasoning(messages, "chat-1", failing.db)).toBe(
+    expect(await attachPriorReasoning(messages, "chat-1", MODEL, failing.db)).toBe(
       messages,
     );
   });

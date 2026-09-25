@@ -773,6 +773,7 @@ export async function prepareWordChatStream(
       ? await attachPriorReasoning(
           messages,
           persistChat ? chatId : null,
+          selectedModel,
           db,
           "word_chat_messages",
         )

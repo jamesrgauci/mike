@@ -160,17 +160,26 @@ export function spotlightWorkflow(text: string, nonce: string): string {
 export const MAX_REPLAYED_REASONING_CHARS = 12_000;
 
 /**
+ * Reasoning replayed across the whole history. The newest turns are kept
+ * first; once a turn does not fit, it and every older turn go back as text.
+ */
+export const MAX_REPLAYED_REASONING_TOTAL_CHARS = 36_000;
+
+/**
  * Attaches each earlier assistant turn's stored reasoning to the matching
  * message in `messages`, for models that need their own thinking replayed
- * (see ConfiguredModel.replayReasoning). The client sends history as text
- * only, so a message is matched to a stored row by its visible text — the
- * row's `content` events joined, exactly as the frontend rebuilds it — in
- * order. An unmatched message is left as is. Run this before
+ * (see ConfiguredModel.replayReasoning). Only reasoning events stamped with
+ * `model` are used, so a model never receives another model's thinking and
+ * turns stored before stamping are never replayed. The client sends history
+ * as text only, so a message is matched to a stored row by its visible text
+ * — the row's `content` events joined, exactly as the frontend rebuilds it —
+ * in order. An unmatched message is left as is. Run this before
  * enrichWithPriorEvents, which appends to the last assistant message's text.
  */
 export async function attachPriorReasoning(
   messages: ChatMessage[],
   chatId: string | null | undefined,
+  model: string,
   db: Db,
   messageTable = "chat_messages",
 ): Promise<ChatMessage[]> {
@@ -189,13 +198,18 @@ export async function attachPriorReasoning(
 
   const turns = (rows as { content?: unknown }[]).map((row) => {
     const events = Array.isArray(row.content)
-      ? (row.content as { type?: unknown; text?: unknown }[])
+      ? (row.content as { type?: unknown; text?: unknown; model?: unknown }[])
       : [];
-    const textOf = (type: string) =>
+    const textOf = (type: string, producedBy?: string) =>
       events
-        .filter((ev) => ev?.type === type && typeof ev.text === "string")
+        .filter(
+          (ev) =>
+            ev?.type === type &&
+            typeof ev.text === "string" &&
+            (producedBy === undefined || ev.model === producedBy),
+        )
         .map((ev) => ev.text as string);
-    const reasoning = textOf("reasoning").join("\n\n").trim();
+    const reasoning = textOf("reasoning", model).join("\n\n").trim();
     return {
       text: textOf("content").join("").trim(),
       reasoning:
@@ -206,18 +220,33 @@ export async function attachPriorReasoning(
   });
 
   let next = 0;
-  return messages.map((msg) => {
-    if (msg.role !== "assistant") return msg;
+  const matched = messages.map((msg) => {
+    if (msg.role !== "assistant") return undefined;
     const text = (msg.content ?? "").trim();
-    if (!text) return msg;
+    if (!text) return undefined;
     for (let i = next; i < turns.length; i++) {
       if (turns[i].text !== text) continue;
       next = i + 1;
-      return turns[i].reasoning
-        ? { ...msg, reasoning: turns[i].reasoning }
-        : msg;
+      return turns[i].reasoning || undefined;
     }
-    return msg;
+    return undefined;
+  });
+
+  let remaining = MAX_REPLAYED_REASONING_TOTAL_CHARS;
+  for (let i = matched.length - 1; i >= 0; i--) {
+    const reasoning = matched[i];
+    if (reasoning === undefined) continue;
+    if (reasoning.length > remaining) {
+      remaining = 0;
+      matched[i] = undefined;
+    } else {
+      remaining -= reasoning.length;
+    }
+  }
+
+  return messages.map((msg, i) => {
+    const reasoning = matched[i];
+    return reasoning === undefined ? msg : { ...msg, reasoning };
   });
 }
 

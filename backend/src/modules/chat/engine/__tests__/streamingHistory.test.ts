@@ -86,3 +86,57 @@ describe("runLLMStream history", () => {
     ]);
   });
 });
+
+type ReasoningCallbacks = {
+  onReasoningDelta: (delta: string) => void;
+  onReasoningBlockEnd: () => void;
+  onContentDelta: (delta: string) => void;
+};
+
+const streamArgs = () => ({
+  model: "gemini-3-flash-preview",
+  apiMessages: [
+    { role: "system", content: "SYSTEM" },
+    { role: "user", content: "question" },
+  ],
+  docStore: new Map(),
+  docIndex: {},
+  userId: "u1",
+  db: {} as never,
+  write: vi.fn(),
+});
+
+describe("runLLMStream reasoning provenance", () => {
+  it("stamps stored reasoning with the model that produced it", async () => {
+    streamChatWithTools.mockImplementationOnce(async (params) => {
+      const callbacks = params.callbacks as ReasoningCallbacks;
+      callbacks.onReasoningDelta("Thinking.");
+      callbacks.onReasoningBlockEnd();
+      callbacks.onContentDelta("Answer.");
+      return { fullText: "Answer." };
+    });
+
+    const { events } = await runLLMStream(streamArgs());
+
+    expect(events).toContainEqual({
+      type: "reasoning",
+      text: "Thinking.",
+      model: "gemini-3-flash-preview",
+    });
+  });
+
+  it("stamps reasoning flushed from a turn that failed mid-thought", async () => {
+    streamChatWithTools.mockImplementationOnce(async (params) => {
+      (params.callbacks as ReasoningCallbacks).onReasoningDelta("Half a thought");
+      throw new Error("upstream dropped");
+    });
+
+    const failure = await runLLMStream(streamArgs()).catch((e: unknown) => e);
+
+    expect((failure as { events?: unknown[] }).events).toContainEqual({
+      type: "reasoning",
+      text: "Half a thought",
+      model: "gemini-3-flash-preview",
+    });
+  });
+});

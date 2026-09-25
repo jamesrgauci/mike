@@ -367,7 +367,7 @@ export async function prepareChatStream(
         // and workflow titles replayed from earlier turns are fenced as well.
         const nonce = generateSpotlightNonce(chatId);
         const historyMessages = replaysReasoning(selectedModel)
-            ? await attachPriorReasoning(messages, chatId, db)
+            ? await attachPriorReasoning(messages, chatId, selectedModel, db)
             : messages;
         const enrichedMessages = await enrichWithPriorEvents(
             historyMessages,

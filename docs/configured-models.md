@@ -134,11 +134,19 @@ Set `replayReasoning: true` on such a model:
 ```
 
 For each earlier assistant message, Mike looks up the stored turn with the same
-visible text and sends that turn's reasoning as `reasoning_content`. Only the
-last 12,000 characters of each turn's reasoning are sent. Messages that match
-no stored turn, such as an edited history, are sent as text only. Reasoning is
-never taken from the request body. Models without the flag, including every
-hosted provider, never receive stored reasoning.
+visible text and sends that turn's reasoning as `reasoning_content`. Messages
+that match no stored turn, such as an edited history, are sent as text only.
+Reasoning is never taken from the request body. Models without the flag,
+including every hosted provider, never receive stored reasoning.
+
+Mike records which model produced each piece of stored reasoning, and replays
+only reasoning produced by the model now answering. Switching a chat to another
+model never sends it the previous model's thinking. Turns stored before this
+recording existed are sent as text only.
+
+Replay is bounded. Only the last 12,000 characters of each turn's reasoning are
+sent, and at most 36,000 characters across the whole history, newest turns
+first. Once a turn does not fit, it and every older turn are sent as text only.
 
 Within a single turn, the reasoning of each tool-calling step is always passed
 to the next step, whatever this setting is.
