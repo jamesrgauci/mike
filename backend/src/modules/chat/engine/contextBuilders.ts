@@ -156,6 +156,71 @@ export function spotlightWorkflow(text: string, nonce: string): string {
   return `<workflow-instructions nonce="${nonce}">\n${neutralized}\n</workflow-instructions nonce="${nonce}">`;
 }
 
+/** Tail of a turn's reasoning kept when it is replayed to the model. */
+export const MAX_REPLAYED_REASONING_CHARS = 12_000;
+
+/**
+ * Attaches each earlier assistant turn's stored reasoning to the matching
+ * message in `messages`, for models that need their own thinking replayed
+ * (see ConfiguredModel.replayReasoning). The client sends history as text
+ * only, so a message is matched to a stored row by its visible text — the
+ * row's `content` events joined, exactly as the frontend rebuilds it — in
+ * order. An unmatched message is left as is. Run this before
+ * enrichWithPriorEvents, which appends to the last assistant message's text.
+ */
+export async function attachPriorReasoning(
+  messages: ChatMessage[],
+  chatId: string | null | undefined,
+  db: Db,
+  messageTable = "chat_messages",
+): Promise<ChatMessage[]> {
+  if (!chatId || !messages.some((m) => m.role === "assistant")) {
+    return messages;
+  }
+  const { data: rows, error } = await db
+    .from(messageTable)
+    .select("content")
+    .eq("chat_id", chatId)
+    .eq("role", "assistant")
+    .not("content", "is", null)
+    .order("created_at", { ascending: true });
+  // Replay is an optimisation: a failed read degrades to text-only history.
+  if (error || !rows?.length) return messages;
+
+  const turns = (rows as { content?: unknown }[]).map((row) => {
+    const events = Array.isArray(row.content)
+      ? (row.content as { type?: unknown; text?: unknown }[])
+      : [];
+    const textOf = (type: string) =>
+      events
+        .filter((ev) => ev?.type === type && typeof ev.text === "string")
+        .map((ev) => ev.text as string);
+    const reasoning = textOf("reasoning").join("\n\n").trim();
+    return {
+      text: textOf("content").join("").trim(),
+      reasoning:
+        reasoning.length > MAX_REPLAYED_REASONING_CHARS
+          ? reasoning.slice(-MAX_REPLAYED_REASONING_CHARS)
+          : reasoning,
+    };
+  });
+
+  let next = 0;
+  return messages.map((msg) => {
+    if (msg.role !== "assistant") return msg;
+    const text = (msg.content ?? "").trim();
+    if (!text) return msg;
+    for (let i = next; i < turns.length; i++) {
+      if (turns[i].text !== text) continue;
+      next = i + 1;
+      return turns[i].reasoning
+        ? { ...msg, reasoning: turns[i].reasoning }
+        : msg;
+    }
+    return msg;
+  });
+}
+
 export async function enrichWithPriorEvents(
   messages: ChatMessage[],
   chatId: string | null | undefined,
@@ -407,7 +472,11 @@ export function buildMessages(
       });
       content = `[The user attached the following document(s) to this message:\n${lines.join("\n")}]\n\n${content}`;
     }
-    formatted.push({ role: msg.role, content });
+    formatted.push(
+      msg.role === "assistant" && msg.reasoning
+        ? { role: msg.role, content, reasoning: msg.reasoning }
+        : { role: msg.role, content },
+    );
   }
   return formatted;
 }

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // every assertion on it type-checks vacuously.
 type StreamChatCall = {
   systemPrompt: string;
-  messages: { role: string; content: string }[];
+  messages: { role: string; content: string; reasoning?: string }[];
   [key: string]: unknown;
 };
 
@@ -60,6 +60,29 @@ describe("runLLMStream history", () => {
       ["user", "second"],
       ["assistant", "kept"],
       ["user", "third"],
+    ]);
+  });
+
+  it("carries attached reasoning on assistant turns through to the model call", async () => {
+    await runLLMStream({
+      model: "gemini-3-flash-preview",
+      apiMessages: [
+        { role: "system", content: "SYSTEM" },
+        { role: "user", content: "first" },
+        { role: "assistant", content: "answer", reasoning: "why" },
+        { role: "user", content: "second" },
+      ],
+      docStore: new Map(),
+      docIndex: {},
+      userId: "u1",
+      db: {} as never,
+      write: vi.fn(),
+    });
+    const params = streamChatWithTools.mock.calls[0]![0];
+    expect(params.messages).toEqual([
+      { role: "user", content: "first" },
+      { role: "assistant", content: "answer", reasoning: "why" },
+      { role: "user", content: "second" },
     ]);
   });
 });
