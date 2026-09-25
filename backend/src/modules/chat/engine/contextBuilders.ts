@@ -172,8 +172,8 @@ export const MAX_REPLAYED_REASONING_TOTAL_CHARS = 36_000;
  * `model` are used, so a model never receives another model's thinking and
  * turns stored before stamping are never replayed. The client sends history
  * as text only, so a message is matched to a stored row by its visible text
- * — the row's `content` events joined, exactly as the frontend rebuilds it —
- * in order. An unmatched message is left as is. Run this before
+ * — the row's `content` events joined, exactly as the frontend rebuilds it.
+ * An unmatched or ambiguous message is left as is. Run this before
  * enrichWithPriorEvents, which appends to the last assistant message's text.
  */
 export async function attachPriorReasoning(
@@ -219,17 +219,31 @@ export async function attachPriorReasoning(
     };
   });
 
-  let next = 0;
+  // Identical replies are paired in order only when the request carries every
+  // stored copy. If some are missing (a shortened or retried history), there
+  // is no telling which turn a copy is, so it goes back as text.
+  const storedByText = new Map<string, number[]>();
+  for (const [i, { text }] of turns.entries()) {
+    const indices = storedByText.get(text);
+    if (indices) indices.push(i);
+    else storedByText.set(text, [i]);
+  }
+  const assistantText = (msg: ChatMessage) =>
+    msg.role === "assistant" ? (msg.content ?? "").trim() : "";
+  const requestCount = new Map<string, number>();
+  for (const msg of messages) {
+    const text = assistantText(msg);
+    if (text) requestCount.set(text, (requestCount.get(text) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
   const matched = messages.map((msg) => {
-    if (msg.role !== "assistant") return undefined;
-    const text = (msg.content ?? "").trim();
+    const text = assistantText(msg);
     if (!text) return undefined;
-    for (let i = next; i < turns.length; i++) {
-      if (turns[i].text !== text) continue;
-      next = i + 1;
-      return turns[i].reasoning || undefined;
-    }
-    return undefined;
+    const occurrence = seen.get(text) ?? 0;
+    seen.set(text, occurrence + 1);
+    const stored = storedByText.get(text) ?? [];
+    if (stored.length !== requestCount.get(text)) return undefined;
+    return turns[stored[occurrence]].reasoning || undefined;
   });
 
   let remaining = MAX_REPLAYED_REASONING_TOTAL_CHARS;

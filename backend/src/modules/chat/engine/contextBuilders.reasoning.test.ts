@@ -109,7 +109,7 @@ describe("attachPriorReasoning", () => {
     expect(result.map((m) => m.reasoning)).toEqual([undefined, undefined, "Mine."]);
   });
 
-  it("matches in order, so repeated replies each get their own turn's reasoning", async () => {
+  it("pairs repeated replies in order when every copy is present", async () => {
     const { db } = makeDb([
       turn(thought("r1"), said("Done.")),
       turn(thought("r2"), said("Done.")),
@@ -124,6 +124,39 @@ describe("attachPriorReasoning", () => {
       db,
     );
     expect(result.map((m) => m.reasoning)).toEqual(["r1", "r2"]);
+  });
+
+  it("does not guess between identical replies when the history omits one", async () => {
+    const { db } = makeDb([
+      turn(thought("r1"), said("Done.")),
+      turn(thought("r2"), said("Unique.")),
+      turn(thought("r3"), said("Done.")),
+    ]);
+    const result = await attachPriorReasoning(
+      [
+        { role: "assistant", content: "Unique." },
+        { role: "assistant", content: "Done." },
+      ],
+      "chat-1",
+      MODEL,
+      db,
+    );
+    // "Done." is stored twice but sent once, so it could be either turn.
+    expect(result.map((m) => m.reasoning)).toEqual(["r2", undefined]);
+  });
+
+  it("still matches unique replies in a shortened history", async () => {
+    const { db } = makeDb([
+      turn(thought("r1"), said("First.")),
+      turn(thought("r2"), said("Second.")),
+    ]);
+    const [message] = await attachPriorReasoning(
+      [{ role: "assistant", content: "First." }],
+      "chat-1",
+      MODEL,
+      db,
+    );
+    expect(message.reasoning).toBe("r1");
   });
 
   it("leaves a message without a matching stored turn alone", async () => {

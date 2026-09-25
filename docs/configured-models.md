@@ -135,7 +135,9 @@ Set `replayReasoning: true` on such a model:
 
 For each earlier assistant message, Mike looks up the stored turn with the same
 visible text and sends that turn's reasoning as `reasoning_content`. Messages
-that match no stored turn, such as an edited history, are sent as text only.
+that match no stored turn, such as an edited history, are sent as text only. So
+is a reply whose text is stored more times than it appears in the history
+sent, because Mike cannot tell which of those turns it is.
 Reasoning is never taken from the request body. Models without the flag,
 including every hosted provider, never receive stored reasoning.
 
